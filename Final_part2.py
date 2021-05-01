@@ -8,7 +8,7 @@ import ctypes
 import threading
 import psutil
 
-
+"""compiles yara rules"""
 def yara_compile():
     rule_location = "C:\\yara_rules\\"  #Defines the location the yara rules are stored.
     rules = os.listdir(rule_location) # Gets a list of the rules in the rule_location directory
@@ -19,7 +19,8 @@ def yara_compile():
                 compiled_rules = yara.compile(filepath=yara_rule)
                 full_compiled.append(compiled_rules)
     return full_compiled
-    
+
+"""Scans given processes memory against the compiled rules"""    
 def yara_scanning(processId , full_compiled):
     all_matches = []
     for item in full_compiled:
@@ -27,7 +28,7 @@ def yara_scanning(processId , full_compiled):
         if len(matches) > 0:
             all_matches.append(matches)
     return all_matches
-    
+  
 def main():
     full_compiled = yara_compile()
     def inside_main():
@@ -37,7 +38,7 @@ def main():
         while True:
             new_process = process_watcher()
             processId = new_process.processId
-            ctypes.windll.kernel32.DebugActiveProcess(processId)
+            ctypes.windll.kernel32.DebugActiveProcess(processId) #Puts process into Debug mode so it cannot do harm to machine
             parentprocessID = new_process.parentprocessId
             name = new_process.Name
             exepath = new_process.ExecutablePath
@@ -46,12 +47,18 @@ def main():
                 psutilprocesser = psutil.Process(processId)
                 parentprocessname = psutilprocesser.parent().name()
                 username = psutilprocesser.username()
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                children = psutilprocesser.children(recursive=True)
+                child_list = []
+                for child in children:
+                    ctypes.windll.kernel32.DebugActiveProcess(child.pid)
+                    child_list.append(child.pid)
+                    
+            except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
                 pass
             try:
                 all_matches = yara_scanning(processId, full_compiled)#Trys to match the rule to the strings in the process memory
                 if len(all_matches) > 0:
-                    print(all_matches)
+                    """If there is a match it gathers more information and puts it into a dictionary, then kills the process"""
                     sha256 = hashlib.sha256(open(exepath, 'rb').read()).hexdigest()
                     analysis_stats = virustotalscan(sha256)
                     jsondata = {"Process Name: ": name, "Process ID: ": processId, "Executable Path:" : exepath, "Executable Hash:": sha256, "VirusTotal Scan:" : str(analysis_stats), "CName\\Username:" : username, "Parent Process Name/ID:" : (parentprocessname , str(parentprocessID)), "Command Line: ": commandline, "Matches: ": str(all_matches)}
@@ -62,7 +69,17 @@ def main():
                     PROCESS_QUERY_INFORMATION = 0x0400
                     hprocess = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION, False, processId)
                     ctypes.windll.kernel32.TerminateProcess(hprocess, 1)
-                    continueprocess(processId)
+                    continueprocess(processId) # After TerminateProcess is called a continue process needs to occur in order to close all open process handles.
+                    if parentprocessname == "explorer.exe":
+                        pass
+                    else:
+                        hprocess = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION, False, parentprocessID)
+                        ctypes.windll.kernel32.TerminateProcess(hprocess, 1)
+                        continueprocess(parentprocessID)
+                        for item in child_list:
+                            hprocess = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION, False, item)
+                            ctypes.windll.kernel32.TerminateProcess(hprocess, 1)
+                            continueprocess(item)
                     t1 = threading.Thread(target=gui)
                     t2 = threading.Thread(target=inside_main)
                     t1.start()
@@ -70,20 +87,25 @@ def main():
                     t1.join()
                     continue
                 else:
-                    continueprocess(processId)
+                    continueprocess(processId)#Continues process if there are no matches
+                    for child in child_list:
+                        continueprocess(child)
             except yara.Error:
                 continue
     inside_main()
-
+    
+"""Function to continue the process"""
 def continueprocess(processId):
     ctypes.windll.kernel32.DebugActiveProcessStop(processId)
-    
+
+"""Scans a file based on hash using VT API"""
 def virustotalscan(filehash):
-    client = vt.Client("Input VT API Key")
+    client = vt.Client("VT API KEY")
     file = client.get_object("/files/" + filehash)
     analysis_stats= file.last_analysis_stats
     return analysis_stats
 
+"""Spawns a GUI (This doesn't pop up when ran as a service"""
 def gui():
     return ctypes.windll.user32.MessageBoxW(0, "Malicious Process Detected", "ALERT", 1)
 
