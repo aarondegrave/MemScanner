@@ -59,12 +59,15 @@ def main():
                 all_matches = yara_scanning(processId, full_compiled)#Trys to match the rule to the strings in the process memory
                 if len(all_matches) > 0:
                     """If there is a match it gathers more information and puts it into a dictionary, then kills the process"""
-                    sha256 = hashlib.sha256(open(exepath, 'rb').read()).hexdigest()
-                    analysis_stats = virustotalscan(sha256)
-                    jsondata = {"Process Name: ": name, "Process ID: ": processId, "Executable Path:" : exepath, "Executable Hash:": sha256, "VirusTotal Scan:" : str(analysis_stats), "CName\\Username:" : username, "Parent Process Name/ID:" : (parentprocessname , str(parentprocessID)), "Command Line: ": commandline, "Matches: ": str(all_matches)}
-                    dump = json.dumps(jsondata, indent=4)
-                    with open('MaliciousProcess.json', 'w') as outfile:
-                        outfile.write(dump)
+                    try:
+                        sha256 = hashlib.sha256(open(exepath, 'rb').read()).hexdigest()
+                        analysis_stats = virustotalscan(sha256)
+                        jsondata = {"Process_Name:": name, "Process_ID:": processId, "Executable_Path:": exepath, "Executable_Hash:": sha256, "VirusTotal_Scan:": str(analysis_stats), "CName_Username:": username, "Parent_Process_Name_ID:": (parentprocessname , str(parentprocessID)), "CommandLine:": commandline, "Matches:": str(all_matches)}
+                        dump = json.dumps(jsondata, indent=4)
+                        with open('MaliciousProcess.json', 'w') as outfile:
+                            outfile.write(dump)
+                    except Exception:
+                        continue
                     PROCESS_TERMINATE = 0x0001
                     PROCESS_QUERY_INFORMATION = 0x0400
                     hprocess = ctypes.windll.kernel32.OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION, False, processId)
@@ -100,7 +103,7 @@ def continueprocess(processId):
 
 """Scans a file based on hash using VT API"""
 def virustotalscan(filehash):
-    client = vt.Client("VT API KEY")
+    client = vt.Client("API KEY")
     file = client.get_object("/files/" + filehash)
     analysis_stats= file.last_analysis_stats
     return analysis_stats
